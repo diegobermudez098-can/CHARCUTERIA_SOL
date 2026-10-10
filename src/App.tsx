@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import Layout from './components/Layout'
+import { Alert, Btn, Field, inputCls } from './components/ui'
 import Sales from './pages/Sales'
 import SalesHistory from './pages/SalesHistory'
 import Products from './pages/Products'
@@ -19,6 +20,7 @@ import OrderStatus from './pages/OrderStatus'
 function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [show, setShow] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -26,30 +28,31 @@ function Login() {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setError('Correo o contraseña incorrectos')
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+    if (error) setError('El correo o la contraseña no coinciden. Revisa que el correo esté bien escrito y sin espacios.')
     setLoading(false)
   }
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-sol-50 p-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm bg-white rounded-2xl shadow p-6 space-y-4">
-        <h1 className="text-3xl font-bold text-sol-700">SOL</h1>
-        <p className="text-sm text-gray-600">Ingresa con tu cuenta del negocio</p>
-        <label className="block text-sm font-medium">
-          Correo
+      <form onSubmit={onSubmit} className="w-full max-w-md bg-white rounded-3xl shadow p-8 space-y-5">
+        <h1 className="text-5xl font-extrabold text-sol-700">SOL</h1>
+        <p className="text-lg text-gray-700">Escribe tu correo y tu contraseña para entrar.</p>
+        <Field label="Correo">
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full border rounded-lg px-3 py-2" />
-        </label>
-        <label className="block text-sm font-medium">
-          Contraseña
-          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full border rounded-lg px-3 py-2" />
-        </label>
-        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        <button disabled={loading} className="w-full bg-sol-600 hover:bg-sol-700 text-white rounded-lg py-2 font-semibold disabled:opacity-60">
-          {loading ? 'Ingresando…' : 'Ingresar'}
-        </button>
+            autoComplete="username" autoCapitalize="none" spellCheck={false} className={inputCls} />
+        </Field>
+        <div>
+          <Field label="Contraseña">
+            <input type={show ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password" className={inputCls} />
+          </Field>
+          <button type="button" onClick={() => setShow(!show)} className="mt-2 text-base font-semibold underline text-sol-900">
+            {show ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+          </button>
+        </div>
+        {error && <Alert>{error}</Alert>}
+        <Btn variant="good" disabled={loading} className="w-full py-4 text-xl">{loading ? 'Entrando…' : 'Entrar'}</Btn>
       </form>
     </main>
   )
@@ -65,7 +68,7 @@ export default function App() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  if (!ready) return <p className="p-6">Cargando…</p>
+  if (!ready) return <p className="p-6 text-xl">Cargando…</p>
 
   return (
     <Routes>

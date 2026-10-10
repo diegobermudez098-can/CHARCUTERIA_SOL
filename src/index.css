@@ -1,3 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Letra más grande en toda la app (todo lo demás se escala con esto). */
+@layer base {
+  html { font-size: 18px; }
+  body { line-height: 1.5; color: #1f2937; }
+  :focus-visible { outline: 4px solid #1d4ed8; outline-offset: 2px; }
+}
+
+/* Los recibos se imprimen con el tamaño normal. */
+@media print {
+  html { font-size: 16px; }
+}

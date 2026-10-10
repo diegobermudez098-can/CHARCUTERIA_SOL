@@ -6,6 +6,7 @@ export interface Category { id: string; name: string }
 export interface Product {
   id: string; name: string; description: string | null; category_id: string | null
   sale_mode: SaleMode; price: number; cost: number; stock: number; min_stock: number; active: boolean
+  image_url?: string | null
 }
 export interface Customer { id: string; name: string; phone: string | null; notes: string | null; created_at: string }
 export interface SaleItem { id: string; product_name: string; sale_mode: SaleMode; quantity: number; unit_price: number; line_total: number }
