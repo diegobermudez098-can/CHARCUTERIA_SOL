@@ -4,11 +4,12 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import Layout from './components/Layout'
 import { Alert, Btn, Field, inputCls } from './components/ui'
+import { BUSINESS_NAME } from './lib/brand'
 import Sales from './pages/Sales'
 import SalesHistory from './pages/SalesHistory'
 import Products from './pages/Products'
 import Customers from './pages/Customers'
-import Cash from './pages/Cash'
+import Debts from './pages/Debts'
 import Expenses from './pages/Expenses'
 import Orders from './pages/Orders'
 import Reports from './pages/Reports'
@@ -36,7 +37,7 @@ function Login() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-sol-50 p-4">
       <form onSubmit={onSubmit} className="w-full max-w-md bg-white rounded-3xl shadow p-8 space-y-5">
-        <h1 className="text-5xl font-extrabold text-sol-700">SOL</h1>
+        <h1 className="text-4xl font-extrabold text-sol-700 leading-tight">{BUSINESS_NAME}</h1>
         <p className="text-lg text-gray-700">Escribe tu correo y tu contraseña para entrar.</p>
         <Field label="Correo">
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
@@ -83,7 +84,7 @@ export default function App() {
         <Route path="/historial" element={<SalesHistory />} />
         <Route path="/productos" element={<Products />} />
         <Route path="/clientes" element={<Customers />} />
-        <Route path="/caja" element={<Cash />} />
+        <Route path="/deudas" element={<Debts />} />
         <Route path="/gastos" element={<Expenses />} />
         <Route path="/reportes" element={<Reports />} />
         <Route path="/auditoria" element={<Audit />} />

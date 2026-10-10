@@ -5,6 +5,7 @@ import { formatCOP, formatQuantity, lineTotal } from '../lib/money'
 import { errMsg } from '../lib/db'
 import type { PublicInfo, PublicProduct } from '../lib/types'
 import { Alert, Btn, Empty, Field, inputCls } from '../components/ui'
+import { BUSINESS_NAME } from '../lib/brand'
 
 interface Line { product: PublicProduct; qty: number }
 interface Done { number: number; token: string; total: number; summary: string }
@@ -66,7 +67,7 @@ export default function Store() {
     if (error) return setError(errMsg(error))   // misma clave: reintentar no duplica el pedido
     const r = data as { number: number; token: string; total: number }
     const summary = [
-      `Hola, hice el pedido #${r.number} en ${info?.business_name ?? 'SOL'}:`,
+      `Hola, hice el pedido #${r.number} en ${info?.business_name ?? BUSINESS_NAME}:`,
       ...lines.map((l) => `- ${l.product.name}: ${formatQuantity(l.product.sale_mode, l.qty)}`),
       `Total estimado: ${formatCOP(r.total)}`,
       method === 'delivery' ? `Entrega a domicilio: ${address}` : 'Recojo en el establecimiento',
@@ -78,7 +79,7 @@ export default function Store() {
 
   const shown = products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
   const groups = Array.from(new Set(shown.map((p) => p.category ?? 'Otros')))
-  const businessName = info?.business_name ?? 'SOL'
+  const businessName = info?.business_name ?? BUSINESS_NAME
 
   if (done) {
     const statusUrl = `${window.location.origin}/pedido/${done.token}`

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { errMsg, toInt } from '../lib/db'
 import { Alert, Btn, Field, PageTitle, inputCls } from '../components/ui'
+import { BUSINESS_NAME } from '../lib/brand'
 
 export default function Settings() {
   const [name, setName] = useState('')
@@ -24,7 +25,7 @@ export default function Settings() {
     const f = toInt(fee)
     if (!Number.isInteger(f) || f < 0) return setMsg({ ok: false, text: 'El costo de domicilio debe ser un entero igual o mayor que cero' })
     const { error } = await supabase.from('business_settings').update({
-      business_name: name.trim() || 'SOL', whatsapp_number: whatsapp.replace(/\D/g, '') || null,
+      business_name: name.trim() || BUSINESS_NAME, whatsapp_number: whatsapp.replace(/\D/g, '') || null,
       address: address.trim() || null, delivery_enabled: delivery, delivery_fee: f,
     }).eq('id', true)
     setMsg(error ? { ok: false, text: errMsg(error) } : { ok: true, text: 'Ajustes guardados' })

@@ -8,7 +8,7 @@ export interface Product {
   sale_mode: SaleMode; price: number; cost: number; stock: number; min_stock: number; active: boolean
   image_url?: string | null
 }
-export interface Customer { id: string; name: string; phone: string | null; notes: string | null; created_at: string }
+export interface Customer { id: string; name: string; phone: string | null; notes: string | null; created_at: string; active?: boolean }
 export interface SaleItem { id: string; product_name: string; sale_mode: SaleMode; quantity: number; unit_price: number; line_total: number }
 export interface SalePayment { id: string; method: Method; amount: number }
 export interface Sale {

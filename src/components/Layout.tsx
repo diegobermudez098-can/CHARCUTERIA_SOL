@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Btn } from './ui'
+import { BUSINESS_NAME } from '../lib/brand'
 
 // Lo que se usa todos los días va siempre a la vista; lo demás está en "Más".
 const main: [string, string, string][] = [
-  ['/', '🛒', 'Vender'], ['/productos', '📦', 'Productos'], ['/caja', '💵', 'Caja'], ['/gastos', '🧾', 'Gastos'],
+  ['/', '🛒', 'Vender'], ['/productos', '📦', 'Productos'], ['/clientes', '👥', 'Clientes'], ['/deudas', '📒', 'Quién me debe'],
 ]
 const more: [string, string][] = [
-  ['/pedidos', 'Pedidos'], ['/historial', 'Ventas hechas'], ['/clientes', 'Clientes'],
+  ['/gastos', 'Gastos'], ['/pedidos', 'Pedidos'], ['/historial', 'Ventas hechas'],
   ['/reportes', 'Reportes'], ['/auditoria', 'Registro de cambios'], ['/ajustes', 'Ajustes'],
 ]
 
@@ -23,7 +24,7 @@ export default function Layout() {
       <header className="bg-white border-b-2 sm:sticky top-0 z-40 print:hidden">
         <div className="max-w-6xl mx-auto px-4 py-3 space-y-3">
           <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-extrabold text-sol-700">SOL</h1>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-sol-700 leading-tight">{BUSINESS_NAME}</h1>
             <Btn variant="ghost" onClick={() => supabase.auth.signOut()}>Salir</Btn>
           </div>
           <nav className="grid grid-cols-3 sm:grid-cols-5 gap-2" aria-label="Principal">

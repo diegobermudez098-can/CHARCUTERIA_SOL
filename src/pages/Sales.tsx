@@ -18,7 +18,6 @@ const gramChips: [number, string][] = [[250, '¼ kilo'], [500, '½ kilo'], [1000
 export default function Sales() {
   const [products, setProducts] = useState<Product[] | null>(null)
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [cashOpen, setCashOpen] = useState<boolean | null>(null)
   const [search, setSearch] = useState('')
   const [cart, setCart] = useState<CartLine[]>([])
   const [discount, setDiscount] = useState('')
@@ -32,15 +31,13 @@ export default function Sales() {
   const [receiptId, setReceiptId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const [p, c, s] = await Promise.all([
+    const [p, c] = await Promise.all([
       supabase.from('products').select('*').eq('active', true).gt('stock', 0).order('name'),
       supabase.from('customers').select('*').order('name'),
-      supabase.from('cash_sessions').select('id').is('closed_at', null).limit(1),
     ])
     if (p.error) setError(errMsg(p.error))
     setProducts((p.data ?? []) as Product[])
-    setCustomers((c.data ?? []) as Customer[])
-    setCashOpen((s.data ?? []).length > 0)
+    setCustomers(((c.data ?? []) as Customer[]).filter((x) => x.active !== false))
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -118,11 +115,6 @@ export default function Sales() {
   return (
     <>
       <PageTitle>Vender</PageTitle>
-      {cashOpen === false && (
-        <div className="mb-4">
-          <Alert kind="info">Todavía no abriste la caja. Puedes vender, pero el dinero no quedará anotado en la caja. <Link to="/caja" className="underline font-bold">Abrir caja</Link></Alert>
-        </div>
-      )}
       {error && <div className="mb-4"><Alert>{error}</Alert></div>}
 
       <div className="grid lg:grid-cols-[1fr_27rem] gap-5 items-start">

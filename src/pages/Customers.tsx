@@ -1,38 +1,62 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
-import { formatCOP } from '../lib/money'
-import { errMsg, fmtDate, toInt } from '../lib/db'
+import { formatCOP, parseCOP } from '../lib/money'
+import { errMsg, fmtDate } from '../lib/db'
 import { useProfiles } from '../lib/hooks'
 import { methodLabel, type Customer, type Debt, type DebtPayment, type Method, type Sale } from '../lib/types'
-import { Alert, Btn, Empty, Field, Modal, PageTitle, inputCls } from '../components/ui'
+import { Alert, Btn, Choice, Empty, Field, Modal, PageTitle, inputCls } from '../components/ui'
 
-function CustomerForm({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [notes, setNotes] = useState('')
+const NEEDS_SQL = 'No se pudo guardar el cambio. Falta ejecutar el script de clientes en Supabase (supabase-clientes.sql).'
+
+function CustomerForm({ customer, onDone, onClose }: { customer: Customer | null; onDone: () => void; onClose: () => void }) {
+  const [name, setName] = useState(customer?.name ?? '')
+  const [phone, setPhone] = useState(customer?.phone ?? '')
+  const [notes, setNotes] = useState(customer?.notes ?? '')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
   async function submit(e: FormEvent) {
     e.preventDefault()
-    const { error } = await supabase.from('customers').insert({ name: name.trim(), phone: phone.trim() || null, notes: notes.trim() || null })
-    if (error) return setError(errMsg(error))
+    setError('')
+    if (!name.trim()) return setError('Escribe el nombre del cliente')
+    const data = { name: name.trim(), phone: phone.trim() || null, notes: notes.trim() || null }
+    setBusy(true)
+    if (customer) {
+      const { data: rows, error } = await supabase.from('customers').update(data).eq('id', customer.id).select('id')
+      setBusy(false)
+      if (error) return setError(errMsg(error))
+      if (!rows || rows.length === 0) return setError(NEEDS_SQL)
+    } else {
+      const { error } = await supabase.from('customers').insert(data)
+      setBusy(false)
+      if (error) return setError(errMsg(error))
+    }
     onDone()
   }
+
   return (
-    <Modal title="Nuevo cliente" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Nombre"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} required /></Field>
-        <Field label="Teléfono (opcional)"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
+    <Modal title={customer ? 'Editar cliente' : 'Nuevo cliente'} onClose={onClose}>
+      <form onSubmit={submit} noValidate className="space-y-4">
+        <Field label="Nombre"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="Teléfono (opcional)" hint="Con este número puedes recordarle por WhatsApp lo que debe">
+          <input inputMode="tel" className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </Field>
         <Field label="Notas (opcional)"><input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         {error && <Alert>{error}</Alert>}
-        <Btn className="w-full">Guardar</Btn>
+        <div className="grid grid-cols-2 gap-3">
+          <Btn type="button" variant="ghost" onClick={onClose}>Cancelar</Btn>
+          <Btn variant="good" disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</Btn>
+        </div>
       </form>
     </Modal>
   )
 }
 
-function CustomerDetail({ customer, onChanged, onClose }: { customer: Customer; onChanged: () => void; onClose: () => void }) {
+export function CustomerDetail({ customer, onChanged, onClose }: { customer: Customer; onChanged: () => void; onClose: () => void }) {
   const [debts, setDebts] = useState<Debt[]>([])
   const [sales, setSales] = useState<Sale[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [payFor, setPayFor] = useState<Debt | null>(null)
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState<Method>('cash')
@@ -50,6 +74,7 @@ function CustomerDetail({ customer, onChanged, onClose }: { customer: Customer; 
     ])
     setDebts((d.data ?? []) as Debt[])
     setSales((s.data ?? []) as Sale[])
+    setLoaded(true)
   }, [customer.id])
   useEffect(() => { load() }, [load])
 
@@ -58,9 +83,9 @@ function CustomerDetail({ customer, onChanged, onClose }: { customer: Customer; 
   async function submitPay(e: FormEvent) {
     e.preventDefault()
     if (!payFor) return
-    const a = toInt(amount)
-    if (!Number.isInteger(a) || a <= 0) return setError('El abono debe ser un entero mayor que cero')
-    if (a > payFor.balance) return setError(`El abono no puede superar el saldo (${formatCOP(payFor.balance)})`)
+    const a = parseCOP(amount)
+    if (!Number.isInteger(a) || a <= 0) return setError('Escribe cuánto abona, solo con números. Ejemplo: 20000')
+    if (a > payFor.balance) return setError(`El abono no puede ser mayor que lo que debe (${formatCOP(payFor.balance)})`)
     setBusy(true); setError('')
     const { error } = await supabase.rpc('register_debt_payment', { p_debt_id: payFor.id, p_amount: a, p_method: method, p_key: payKey })
     setBusy(false)
@@ -80,61 +105,91 @@ function CustomerDetail({ customer, onChanged, onClose }: { customer: Customer; 
     load(); onChanged()
   }
 
+  async function remove() {
+    setError('')
+    if (!loaded) return
+    if (pending > 0) return setError(`Todavía debe ${formatCOP(pending)}. Primero registra sus abonos y luego puedes eliminarlo.`)
+    const hasHistory = debts.length > 0 || sales.length > 0
+    const ask = hasHistory
+      ? `“${customer.name}” tiene compras anotadas. Se va a ocultar de las listas, pero sus ventas quedan guardadas. ¿Continuar?`
+      : `¿Eliminar a “${customer.name}”? Esto no se puede deshacer.`
+    if (!window.confirm(ask)) return
+    setBusy(true)
+    const res = hasHistory
+      ? await supabase.from('customers').update({ active: false }).eq('id', customer.id).select('id')
+      : await supabase.from('customers').delete().eq('id', customer.id).select('id')
+    setBusy(false)
+    if (res.error) return setError(hasHistory || /policy|permission|row-level/i.test(res.error.message) ? NEEDS_SQL : errMsg(res.error))
+    if (!res.data || res.data.length === 0) return setError(NEEDS_SQL)
+    onChanged(); onClose()
+  }
+
   return (
     <Modal title={customer.name} onClose={onClose}>
-      <p className="text-sm text-gray-600">{customer.phone ?? 'Sin teléfono'}{customer.notes ? ` · ${customer.notes}` : ''}</p>
-      <p className="text-lg font-bold">Saldo pendiente: {formatCOP(pending)}</p>
+      <p className="text-base text-gray-700">{customer.phone ?? 'Sin teléfono'}{customer.notes ? ` · ${customer.notes}` : ''}</p>
+      <p className="text-2xl font-extrabold">Debe: <span className={pending > 0 ? 'text-amber-800' : 'text-green-700'}>{formatCOP(pending)}</span></p>
+      <div className="grid grid-cols-2 gap-3">
+        <Btn variant="ghost" onClick={() => setEditing(true)}>✏️ Editar datos</Btn>
+        <Btn variant="ghost" disabled={busy || !loaded} onClick={remove}>🗑️ Eliminar</Btn>
+      </div>
+      {error && !payFor && !revFor && <Alert>{error}</Alert>}
 
-      <h4 className="font-semibold mt-2">Deudas</h4>
-      {debts.length === 0 ? <Empty>Sin deudas registradas</Empty> : debts.map((d) => (
-        <div key={d.id} className="border rounded-lg p-2 text-sm space-y-1">
+      <h4 className="text-xl font-bold mt-2">Lo que debe</h4>
+      {debts.length === 0 ? <Empty>No tiene deudas</Empty> : debts.map((d) => (
+        <div key={d.id} className="border-2 border-gray-200 rounded-xl p-3 text-base space-y-2">
           <div className="flex justify-between gap-2">
             <span>Venta #{d.sales?.number} · {fmtDate(d.created_at)}</span>
-            <span>{d.status === 'pending' ? <b className="text-amber-700">Pendiente</b> : d.status === 'paid' ? <b className="text-green-700">Pagada</b> : 'Anulada'}</span>
+            <span>{d.status === 'pending' ? <b className="text-amber-800">Pendiente</b> : d.status === 'paid' ? <b className="text-green-700">Pagada</b> : 'Anulada'}</span>
           </div>
-          <div>Original {formatCOP(d.original_amount)} · Saldo <b>{formatCOP(d.balance)}</b></div>
+          <div>Fiado {formatCOP(d.original_amount)} · Falta <b>{formatCOP(d.balance)}</b></div>
           {d.debt_payments.map((p) => (
-            <div key={p.id} className={`text-xs ${p.reversed_at ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
-              Abono {formatCOP(p.amount)} · {methodLabel[p.method]} · {fmtDate(p.created_at)} · {profiles[p.user_id] ?? ''}
+            <div key={p.id} className={`text-sm ${p.reversed_at ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+              Abonó {formatCOP(p.amount)} · {methodLabel[p.method]} · {fmtDate(p.created_at)} · {profiles[p.user_id] ?? ''}
               {p.reversed_at && <span className="no-underline"> (revertido: {p.reverse_reason})</span>}
-              {!p.reversed_at && d.status !== 'voided' && <button onClick={() => { setRevFor(p); setError('') }} className="ml-2 underline text-red-600">Revertir</button>}
+              {!p.reversed_at && d.status !== 'voided' && <button onClick={() => { setRevFor(p); setError('') }} className="ml-2 underline text-red-700">Deshacer abono</button>}
             </div>
           ))}
-          {d.status === 'pending' && <Btn variant="ghost" onClick={() => { setPayFor(d); setError('') }}>Registrar abono</Btn>}
+          {d.status === 'pending' && <Btn variant="primary" onClick={() => { setPayFor(d); setError('') }}>Registrar abono</Btn>}
         </div>
       ))}
 
       {payFor && (
-        <form onSubmit={submitPay} className="border-2 border-sol-500 rounded-lg p-3 space-y-2">
-          <p className="text-sm font-semibold">Abono a la venta #{payFor.sales?.number} (saldo {formatCOP(payFor.balance)})</p>
-          <Field label="Valor del abono"><input inputMode="numeric" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} required /></Field>
-          <Field label="Medio de pago">
-            <select className={inputCls} value={method} onChange={(e) => setMethod(e.target.value as Method)}>
-              <option value="cash">Efectivo</option><option value="transfer">Transferencia</option>
-            </select>
-          </Field>
+        <form onSubmit={submitPay} noValidate className="border-2 border-sol-700 rounded-xl p-4 space-y-3">
+          <p className="text-lg font-bold">Abono a la venta #{payFor.sales?.number} (falta {formatCOP(payFor.balance)})</p>
+          <Field label="¿Cuánto abona?"><input inputMode="numeric" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <div>
+            <p className="text-base font-semibold">¿Cómo pagó?</p>
+            <Choice<Method> value={method} onChange={setMethod} options={[{ value: 'cash', label: 'Efectivo', icon: '💵' }, { value: 'transfer', label: 'Transferencia', icon: '📱' }]} />
+          </div>
           {error && <Alert>{error}</Alert>}
-          <Btn disabled={busy} className="w-full">{busy ? 'Guardando…' : 'Guardar abono'}</Btn>
+          <div className="grid grid-cols-2 gap-3">
+            <Btn type="button" variant="ghost" onClick={() => { setPayFor(null); setError('') }}>Cancelar</Btn>
+            <Btn variant="good" disabled={busy}>{busy ? 'Guardando…' : 'Guardar abono'}</Btn>
+          </div>
         </form>
       )}
 
       {revFor && (
-        <form onSubmit={submitRev} className="border-2 border-red-400 rounded-lg p-3 space-y-2">
-          <p className="text-sm font-semibold">Revertir abono de {formatCOP(revFor.amount)}</p>
-          <Field label="Motivo (obligatorio)"><input className={inputCls} value={revReason} onChange={(e) => setRevReason(e.target.value)} required minLength={3} /></Field>
+        <form onSubmit={submitRev} className="border-2 border-red-400 rounded-xl p-4 space-y-3">
+          <p className="text-lg font-bold">Deshacer el abono de {formatCOP(revFor.amount)}</p>
+          <Field label="¿Por qué? (obligatorio)"><input className={inputCls} value={revReason} onChange={(e) => setRevReason(e.target.value)} required minLength={3} /></Field>
           {error && <Alert>{error}</Alert>}
-          <Btn variant="danger" disabled={busy} className="w-full">{busy ? 'Guardando…' : 'Confirmar reversión'}</Btn>
+          <div className="grid grid-cols-2 gap-3">
+            <Btn type="button" variant="ghost" onClick={() => { setRevFor(null); setError('') }}>Cancelar</Btn>
+            <Btn variant="danger" disabled={busy}>{busy ? 'Guardando…' : 'Deshacer abono'}</Btn>
+          </div>
         </form>
       )}
 
-      <h4 className="font-semibold mt-2">Historial de compras</h4>
-      {sales.length === 0 ? <Empty>Sin compras</Empty> : (
-        <ul className="text-sm divide-y">
+      <h4 className="text-xl font-bold mt-2">Compras</h4>
+      {sales.length === 0 ? <Empty>Todavía no ha comprado</Empty> : (
+        <ul className="text-base divide-y">
           {sales.map((s) => (
-            <li key={s.id} className="py-1 flex justify-between"><span>#{s.number} · {fmtDate(s.created_at)}{s.status === 'voided' ? ' · anulada' : ''}</span><span>{formatCOP(s.total)}</span></li>
+            <li key={s.id} className="py-2 flex justify-between"><span>#{s.number} · {fmtDate(s.created_at)}{s.status === 'voided' ? ' · anulada' : ''}</span><b>{formatCOP(s.total)}</b></li>
           ))}
         </ul>
       )}
+      {editing && <CustomerForm customer={customer} onDone={() => { setEditing(false); onChanged(); onClose() }} onClose={() => setEditing(false)} />}
     </Modal>
   )
 }
@@ -157,35 +212,36 @@ export default function Customers() {
     const b: Record<string, number> = {}
     for (const r of (d.data ?? []) as { customer_id: string; balance: number }[]) b[r.customer_id] = (b[r.customer_id] ?? 0) + r.balance
     setBalances(b)
-    setCustomers((c.data ?? []) as Customer[])
+    setCustomers(((c.data ?? []) as Customer[]).filter((x) => x.active !== false))
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])
 
   const shown = customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || (c.phone ?? '').includes(search))
-  const totalPending = Object.values(balances).reduce((a, b) => a + b, 0)
 
   return (
     <>
-      <PageTitle right={<Btn onClick={() => setCreating(true)}>+ Nuevo cliente</Btn>}>Clientes y fiados</PageTitle>
-      <div className="flex flex-wrap gap-3 items-center mb-3">
-        <input placeholder="Buscar cliente…" value={search} onChange={(e) => setSearch(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white" />
-        <p className="text-sm ml-auto">Total por cobrar: <b>{formatCOP(totalPending)}</b></p>
+      <PageTitle right={<Btn variant="good" onClick={() => setCreating(true)}>+ Nuevo cliente</Btn>}>Clientes</PageTitle>
+      <div className="space-y-3 mb-4">
+        <input aria-label="Buscar cliente" placeholder="🔍 Buscar cliente por nombre o teléfono…" value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputCls} mt-0`} />
+        {!loading && <p className="text-base text-gray-700">{customers.length === 1 ? '1 cliente' : `${customers.length} clientes`}{search ? ` · ${shown.length} encontrados` : ''}</p>}
       </div>
-      {error && <Alert>{error}</Alert>}
-      {loading ? <p>Cargando…</p> : shown.length === 0 ? <Empty>No hay clientes</Empty> : (
-        <ul className="bg-white rounded-xl border divide-y">
+      {error && <div className="mb-4"><Alert>{error}</Alert></div>}
+      {loading ? <Empty>Cargando…</Empty> : shown.length === 0 ? (
+        <Empty>{customers.length === 0 ? 'Todavía no hay clientes. Toca “Nuevo cliente” para agregar el primero.' : 'No encontré ese cliente'}</Empty>
+      ) : (
+        <ul className="bg-white rounded-2xl border-2 border-gray-200 divide-y-2 divide-gray-100 overflow-hidden">
           {shown.map((c) => (
             <li key={c.id}>
-              <button onClick={() => setSelected(c)} className="w-full text-left p-3 flex justify-between gap-2 hover:bg-sol-50 text-sm">
-                <span>{c.name}<br /><span className="text-xs text-gray-500">{c.phone ?? 'Sin teléfono'}</span></span>
-                <b className={balances[c.id] ? 'text-amber-700' : 'text-gray-400'}>{formatCOP(balances[c.id] ?? 0)}</b>
+              <button onClick={() => setSelected(c)} className="w-full text-left px-4 py-4 flex justify-between items-center gap-3 hover:bg-sol-50">
+                <span className="text-xl font-bold">{c.name}<br /><span className="text-base font-normal text-gray-600">{c.phone ?? 'Sin teléfono'}</span></span>
+                {balances[c.id] ? <span className="text-right text-lg font-extrabold text-amber-800">Debe<br />{formatCOP(balances[c.id])}</span> : <span className="text-base text-gray-500">Al día</span>}
               </button>
             </li>
           ))}
         </ul>
       )}
-      {creating && <CustomerForm onDone={() => { setCreating(false); load() }} onClose={() => setCreating(false)} />}
+      {creating && <CustomerForm customer={null} onDone={() => { setCreating(false); load() }} onClose={() => setCreating(false)} />}
       {selected && <CustomerDetail customer={selected} onChanged={load} onClose={() => setSelected(null)} />}
     </>
   )

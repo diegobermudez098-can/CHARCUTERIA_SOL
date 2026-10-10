@@ -4,6 +4,7 @@ import { formatCOP, formatQuantity, parseCOP, parseQty, qtyToInput } from '../li
 import { errMsg, fmtDate } from '../lib/db'
 import { useProfiles } from '../lib/hooks'
 import { uploadProductPhoto } from '../lib/images'
+import { CATALOG, EMOJI_CHOICES, emojiFor, type CatalogItem } from '../lib/catalog'
 import type { Category, InventoryMovement, Product, SaleMode } from '../lib/types'
 import { Alert, Btn, Choice, Empty, Field, Modal, PageTitle, inputCls } from '../components/ui'
 import ProductPhoto from '../components/ProductPhoto'
@@ -11,6 +12,8 @@ import ProductPhoto from '../components/ProductPhoto'
 function ProductForm({ product, categories, onDone, onClose }: {
   product: Product | null; categories: Category[]; onDone: (notice?: string) => void; onClose: () => void
 }) {
+  const [step, setStep] = useState<'pick' | 'form'>(product ? 'form' : 'pick')
+  const [pickSearch, setPickSearch] = useState('')
   const [name, setName] = useState(product?.name ?? '')
   const [mode, setMode] = useState<SaleMode>(product?.sale_mode ?? 'weight')
   const [price, setPrice] = useState(product ? String(product.price) : '')
@@ -20,18 +23,26 @@ function ProductForm({ product, categories, onDone, onClose }: {
   const [categoryId, setCategoryId] = useState(product?.category_id ?? '')
   const [newCategory, setNewCategory] = useState('')
   const [minStock, setMinStock] = useState(product && product.min_stock > 0 ? qtyToInput(product.sale_mode, product.min_stock) : '')
+  const [emojiPick, setEmojiPick] = useState<string | null>(product?.image_url?.startsWith('emoji:') ? product.image_url.slice(6) : null)
   const [photo, setPhoto] = useState<File | null>(null)
-  const [preview, setPreview] = useState<string | null>(product?.image_url ?? null)
+  const [preview, setPreview] = useState<string | null>(product?.image_url && !product.image_url.startsWith('emoji:') ? product.image_url : null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => () => { if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview) }, [preview])
 
+  const emoji = emojiPick ?? emojiFor(name)
+  const shownImage = preview ?? (emoji ? `emoji:${emoji}` : null)
+
   function pickPhoto(f: File | undefined) {
     if (!f) return
     setPhoto(f)
     setPreview(URL.createObjectURL(f))
+  }
+  function choose(item: CatalogItem | null) {
+    if (item) { setName(item.name); setMode(item.mode); setEmojiPick(item.emoji) }
+    setStep('form')
   }
 
   async function submit(e: FormEvent) {
@@ -51,7 +62,7 @@ function ProductForm({ product, categories, onDone, onClose }: {
     }
     setBusy(true)
     try {
-      const image_url = photo ? await uploadProductPhoto(photo) : undefined
+      const image_url = photo ? await uploadProductPhoto(photo) : preview ? undefined : emoji ? `emoji:${emoji}` : undefined
       let catId: string | null = categoryId || null
       if (newCategory.trim()) {
         const { data, error } = await supabase.from('categories').insert({ name: newCategory.trim() }).select().single()
@@ -83,23 +94,42 @@ function ProductForm({ product, categories, onDone, onClose }: {
     }
   }
 
+  if (step === 'pick') {
+    const q = pickSearch.trim().toLowerCase()
+    const items = CATALOG.filter((i) => i.name.toLowerCase().includes(q))
+    return (
+      <Modal title="¿Qué producto vas a agregar?" onClose={onClose}>
+        <input aria-label="Buscar en la lista" placeholder="🔍 Buscar: pollo, chorizo, queso…" value={pickSearch} onChange={(e) => setPickSearch(e.target.value)} className={`${inputCls} mt-0`} />
+        <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[45vh] overflow-y-auto">
+          {items.map((i) => (
+            <li key={i.name}>
+              <button type="button" onClick={() => choose(i)} className="w-full h-full rounded-xl border-2 border-gray-200 bg-white hover:border-sol-700 p-2 flex flex-col items-center gap-1 text-center">
+                <span aria-hidden="true" className="text-4xl">{i.emoji}</span>
+                <span className="text-base font-bold leading-tight">{i.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {items.length === 0 && <Empty>No está en la lista. Escríbelo tú misma.</Empty>}
+        <Btn type="button" variant="ghost" className="w-full" onClick={() => choose(null)}>✏️ Otro producto (escribir el nombre)</Btn>
+      </Modal>
+    )
+  }
+
   const weight = mode === 'weight'
   const priceNum = parseCOP(price)
   return (
     <Modal title={product ? 'Editar producto' : 'Agregar producto'} onClose={onClose}>
       <form onSubmit={submit} noValidate className="space-y-5">
         <div className="flex items-center gap-4">
-          <ProductPhoto name={name || '?'} url={preview} className="w-28 h-28 text-5xl rounded-2xl shrink-0" />
-          <div className="space-y-1">
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickPhoto(e.target.files?.[0])} />
-            <Btn type="button" variant="ghost" onClick={() => fileRef.current?.click()}>📷 {preview ? 'Cambiar foto' : 'Poner foto'}</Btn>
-            <p className="text-sm text-gray-600">Con foto es más fácil encontrarlo al vender.</p>
+          <ProductPhoto name={name || '?'} url={shownImage} className="w-24 h-24 text-6xl rounded-2xl shrink-0" />
+          <div className="flex-1">
+            <Field label="¿Cómo se llama?">
+              <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ejemplo: Pollo entero" />
+            </Field>
+            {!product && <button type="button" onClick={() => setStep('pick')} className="mt-1 text-base font-semibold underline text-sol-900">Elegir otro de la lista</button>}
           </div>
         </div>
-
-        <Field label="¿Cómo se llama?">
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ejemplo: Pollo entero" />
-        </Field>
 
         <div>
           <p className="text-base font-semibold">¿Cómo lo vendes?</p>
@@ -129,6 +159,18 @@ function ProductForm({ product, categories, onDone, onClose }: {
         <details className="rounded-xl border-2 border-gray-200 p-4">
           <summary className="cursor-pointer text-lg font-semibold">Más opciones (no son obligatorias)</summary>
           <div className="space-y-4 mt-4">
+            <div>
+              <p className="text-base font-semibold">Dibujo del producto</p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {EMOJI_CHOICES.map((em) => (
+                  <button key={em} type="button" aria-label={`Dibujo ${em}`} aria-pressed={!preview && emoji === em}
+                    onClick={() => { setEmojiPick(em); setPhoto(null); setPreview(null) }}
+                    className={`h-14 w-14 rounded-xl border-2 text-3xl ${!preview && emoji === em ? 'border-sol-700 bg-sol-100' : 'border-gray-300 bg-white hover:bg-gray-50'}`}>{em}</button>
+                ))}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickPhoto(e.target.files?.[0])} />
+              <Btn type="button" variant="ghost" className="mt-3 text-base" onClick={() => fileRef.current?.click()}>📷 Usar una foto propia</Btn>
+            </div>
             <Field label={weight ? '¿Cuánto te cuesta el kilo?' : '¿Cuánto te cuesta cada unidad?'} hint="Sirve para saber cuánto ganas">
               <input inputMode="numeric" className={inputCls} value={cost} onChange={(e) => setCost(e.target.value)} />
             </Field>
